@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "DesignBaseline",
+  "type": "object",
+  "required": ["actor", "action", "metric", "owner", "constraints"],
+  "properties": {
+    "actor": {
+      "type": "string",
+      "description": "用户角色，如'新注册用户'"
+    },
+    "action": {
+      "type": "string",
+      "description": "动词+名词的完整动作描述"
+    },
+    "metric": {
+      "type": "string",
+      "description": "数字+单位的可量化指标，如'3步完成率>95%'"
+    },
+    "owner": {
+      "type": "string",
+      "description": "责任人姓名"
+    },
+    "constraints": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "否定边界约束列表"
+    },
+    "smartValidation": {
+      "type": "boolean",
+      "default": true
+    },
+    "denyWords": {
+      "type": "array",
+      "items": { "type": "string" },
+      "default": ["大概", "可能", "尽量", "友好"]
+    }
+  }
+}
