@@ -1,0 +1,160 @@
+import { validateFormat, parseMarkdownBaseline, validateSchema } from '../../core/format-validator';
+
+describe('format-validator', () => {
+  describe('validateFormat', () => {
+    it('should pass valid JSON baseline', () => {
+      const content = JSON.stringify({
+        actor: '用户',
+        action: '登录',
+        metric: '3步完成率>95%',
+        owner: '张三',
+        constraints: ['不得强制等待']
+      });
+
+      const result = validateFormat(content);
+      expect(result.valid).toBe(true);
+      expect(result.errors).toHaveLength(0);
+    });
+
+    it('should detect missing fields in JSON', () => {
+      const content = JSON.stringify({
+        actor: '用户',
+        action: '登录'
+      });
+
+      const result = validateFormat(content);
+      expect(result.valid).toBe(false);
+      expect(result.errors.length).toBeGreaterThan(0);
+    });
+
+    it('should parse valid Markdown baseline', () => {
+      const content = `## 需求：登录流程简化\n- 目标：3步完成率>95%\n- 责任人：张三\n- 边界：不得强制等待\n- 边界：禁止收集非必要信息`;
+
+      const result = validateFormat(content);
+      expect(result).toBeDefined();
+    });
+
+    it('should handle invalid content', () => {
+      const content = '这不是有效的格式内容';
+      const result = validateFormat(content);
+      expect(result.valid).toBe(false);
+    });
+  });
+
+  describe('parseMarkdownBaseline', () => {
+    it('should parse action from Markdown', () => {
+      const content = '## 需求：登录流程简化\n- 目标：3步完成率>95%';
+      const result = parseMarkdownBaseline(content);
+      expect(result.action).toBe('登录流程简化');
+    });
+
+    it('should parse metric', () => {
+      const content = '- 目标：3步完成率>95%';
+      const result = parseMarkdownBaseline(content);
+      expect(result.metric).toBe('3步完成率>95%');
+    });
+
+    it('should parse owner', () => {
+      const content = '- 责任人：张三';
+      const result = parseMarkdownBaseline(content);
+      expect(result.owner).toBe('张三');
+    });
+
+    it('should set default actor', () => {
+      const content = '- 目标：3步';
+      const result = parseMarkdownBaseline(content);
+      expect(result.actor).toBe('用户');
+    });
+
+    it('should parse constraints', () => {
+      const content = '- 边界：不得强制等待\n- 边界：禁止收集非必要信息';
+      const result = parseMarkdownBaseline(content);
+      expect(result.constraints.length).toBe(2);
+      expect(result.constraints).toContain('不得强制等待');
+    });
+  });
+
+  describe('validateSchema', () => {
+    it('should validate data against schema', () => {
+      const data = {
+        actor: '用户',
+        action: '登录',
+        metric: '3步',
+        owner: '张三',
+        constraints: []
+      };
+
+      const schema = {
+        type: 'object',
+        required: ['actor', 'action', 'metric', 'owner', 'constraints']
+      };
+
+      const result = validateSchema(data, schema);
+      expect(result.valid).toBe(true);
+    });
+
+    it('should detect missing required fields', () => {
+      const data = { actor: '用户' };
+      const schema = {
+        type: 'object',
+        required: ['actor', 'action']
+      };
+
+      const result = validateSchema(data, schema);
+      expect(result.valid).toBe(false);
+      expect(result.errors.length).toBeGreaterThan(0);
+    });
+
+    it('should handle null schema', () => {
+      const result = validateSchema({ actor: 'test' }, undefined);
+      expect(result.valid).toBe(true);
+    });
+
+    it('should validate type mismatches in schema properties', () => {
+      const data = { actor: 123, constraints: 'not-array' };
+      const schema = {
+        type: 'object',
+        properties: {
+          actor: { type: 'string' },
+          constraints: { type: 'array' }
+        }
+      };
+
+      const result = validateSchema(data, schema);
+      expect(result.valid).toBe(false);
+      expect(result.errors.length).toBe(2);
+    });
+
+    it('should validate boolean type mismatch', () => {
+      const data = { flag: 'yes' };
+      const schema = {
+        type: 'object',
+        properties: {
+          flag: { type: 'boolean' }
+        }
+      };
+
+      const result = validateSchema(data, schema);
+      expect(result.valid).toBe(false);
+    });
+
+    it('should parse actor field from markdown', () => {
+      const content = '- 角色：管理员\n- 目标：3步完成';
+      const result = parseMarkdownBaseline(content);
+      expect(result.actor).toBe('管理员');
+    });
+
+    it('should catch deny words as constraints', () => {
+      const content = '不得强制等待\n禁止收集非必要信息';
+      const result = parseMarkdownBaseline(content);
+      expect(result.constraints.length).toBe(2);
+    });
+
+    it('should handle markdown parse errors gracefully', () => {
+      // Empty markdown-like content should produce defaults
+      const result = parseMarkdownBaseline('- \n- \n');
+      expect(result.actor).toBe('用户');
+      expect(result.constraints).toEqual([]);
+    });
+  });
+});
