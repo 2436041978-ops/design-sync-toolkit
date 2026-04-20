@@ -1,0 +1,211 @@
+# 5 分钟快速上手指南
+
+本文将帮助你在 5 分钟内完成 Design Sync Toolkit 的安装、配置和首次运行。
+
+## 前提条件
+
+- Node.js >= 18.0.0
+- 一个终端
+
+## 步骤一：安装
+
+```bash
+# 方式一：全局安装（推荐）
+npm install -g design-sync-toolkit
+
+# 方式二：项目内安装
+npm install --save-dev design-sync-toolkit
+```
+
+安装完成后，验证安装是否成功：
+
+```bash
+dsc --version
+# 应输出类似：design-sync-toolkit/0.4.0
+```
+
+## 步骤二：创建 requirement.md 基线文件
+
+在你的项目根目录下创建一个 `requirement.md` 文件：
+
+```bash
+cat > requirement.md << 'EOF'
+# 用户登录功能设计基线
+
+## 功能描述
+
+实现手机号一键登录功能，用户无需输入密码即可快速完成身份验证。
+
+## SMART 检查项
+
+### S - 具体（Specific）
+
+实现基于运营商网关的本机号码识别登录功能，包括：
+- 本机号码自动识别与授权
+- 一键确认登录
+- 登录失败时的短信验证码降级方案
+- 明确不实现：第三方社交账号登录、邮箱登录
+
+### M - 可衡量（Measurable）
+
+- 登录成功率 ≥ 99.5%
+- 平均登录耗时 ≤ 3 秒（从点击到完成）
+- 用户操作步骤 ≤ 2 步
+
+### A - 可实现（Achievable）
+
+- 运营商 SDK 已提供本机号码识别能力
+- 技术团队已完成 POC 验证，确认技术可行
+- 现有服务端架构可支持，无需大规模改造
+
+### R - 相关（Relevant）
+
+- 关联 Q3 OKR：降低注册登录流失率 30%
+- 支撑用户体验提升专项
+
+### T - 有时限（Time-bound）
+
+- 设计评审截止日期：2024-08-15
+- 开发完成日期：2024-08-25
+- 上线日期：2024-08-30
+
+## 冻结状态
+
+- [x] 已冻结（冻结日期：2024-07-30）
+- [ ] 未冻结
+EOF
+```
+
+## 步骤三：运行 dsc check
+
+```bash
+dsc check requirement.md
+```
+
+### 预期输出
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  Design Sync Toolkit v0.4.0
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📋 基线文件：requirement.md
+🔍 检查模式：warn
+
+✓ SMART: 具体 (S)      — 通过
+✓ SMART: 可衡量 (M)    — 通过
+✓ SMART: 可实现 (A)    — 通过
+✓ SMART: 相关 (R)      — 通过
+✓ SMART: 有时限 (T)    — 通过
+✓ 基线冻结状态          — 已冻结
+✓ 禁用词扫描           — 通过（扫描 156 个词）
+
+─────────────────────────────
+✅ 检查结果：全部通过
+📊 耗时：127ms
+```
+
+## 步骤四：理解输出
+
+### 检查项说明
+
+| 输出 | 含义 |
+|-----|------|
+| ✅ 通过 | 该项检查通过，无问题 |
+| ⚠️ 警告 | 发现潜在问题，但不阻断流程（warn 模式下） |
+| ❌ 失败 | 发现严重问题，strict 模式下会阻断流程 |
+
+### 常见输出解读
+
+**场景一：缺少可衡量指标**
+
+```
+✓ SMART: 具体 (S)      — 通过
+❌ SMART: 可衡量 (M)    — 失败
+   └─ 未找到量化指标，当前描述："体验要好"
+      💡 建议：补充具体的数值目标，如 "登录成功率 ≥ 99%"
+```
+
+**场景二：基线未冻结**
+
+```
+⚠️ 基线冻结状态          — 未冻结
+   └─ 基线尚未进入冻结状态
+      💡 建议：需求确认后执行 dsc freeze requirement.md
+```
+
+**场景三：发现禁用词**
+
+```
+⚠️ 禁用词扫描           — 发现 1 个黄灯词
+   └─ 在第 15 行发现 "第三方登录"
+      💡 建议：确认是否符合当前阶段的接入策略
+```
+
+## 步骤五：接入 package.json scripts
+
+为了方便日常使用，建议在 `package.json` 中添加以下脚本：
+
+```json
+{
+  "scripts": {
+    "design:check": "dsc check requirement.md",
+    "design:check:strict": "dsc check requirement.md --mode=strict",
+    "design:report": "dsc report --output=design-quality-report.html",
+    "design:debt:add": "dsc debt-tracker add --baseline=requirement.md",
+    "design:debt:list": "dsc debt-tracker list"
+  }
+}
+```
+
+### 使用示例
+
+```bash
+# 日常检查
+npm run design:check
+
+# 提交前严格检查
+npm run design:check:strict
+
+# 生成质量报告
+npm run design:report
+
+# 登记偏差
+npm run design:debt:add -- --reason="业务调整" --impact="延期2天"
+
+# 查看偏差列表
+npm run design:debt:list
+```
+
+## 下一步
+
+- 📖 阅读 [API 文档](./api.md) 了解所有命令和配置选项
+- 🔧 查看 [CI/CD 集成指南](./integration-guide.md) 将检查自动化
+- 🤖 了解 [AI 协作红线规范](./ai-collaboration-guide.md)
+- 📋 参考 [登录流程完整示例](./examples/login-flow.md)
+
+## 常见问题
+
+**Q: 检查失败了怎么办？**
+
+A: 根据报错信息修正基线文件后重新运行检查。如果是合理的业务变更，可以先登记偏差再调整基线。
+
+**Q: 可以一次检查多个文件吗？**
+
+A: 可以，使用 glob 模式：
+
+```bash
+dsc check "baselines/**/*.md"
+```
+
+**Q: 如何自定义禁用词？**
+
+A: 在项目根目录创建 `.dscrc.json`：
+
+```json
+{
+  "redWords": ["强制", "过度", "绕过"],
+  "yellowWords": ["第三方", "生物特征"],
+  "greenWords": ["本机号码", "一键授权"]
+}
+```
