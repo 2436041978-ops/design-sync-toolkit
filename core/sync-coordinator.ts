@@ -1,84 +1,141 @@
+import { FormatValidator, ValidationResult } from './format-validator';
+import { checkFileExists, detectFormat, readFileSafe } from './input-checker';
+import { yamlToJson, extractDesignTokens, DesignToken } from './sync-transformer';
+
 /**
- * 同步协调器 - 协调多个同步任务的执行
+ * 同步结果接口
  */
-
-export interface SyncTask {
-  id: string;
-  type: 'check' | 'transform' | 'report';
-  input: string;
-  config?: Record<string, unknown>;
-}
-
 export interface SyncResult {
-  taskId: string;
-  status: 'success' | 'failure' | 'partial';
-  outputs: unknown[];
-  logs: string[];
+  file: string;
+  success: boolean;
+  phase: 'input' | 'validation' | 'transform' | 'unknown';
+  validation?: ValidationResult;
+  tokens?: DesignToken[];
+  json?: object;
+  error?: string;
+  durationMs: number;
 }
 
 /**
- * 协调多个同步任务的执行
+ * 同步协调器
+ * 编排输入检查 → 格式校验 → 转换提取的完整流程
  */
-export function coordinateSync(tasks: SyncTask[]): SyncResult {
-  const outputs: unknown[] = [];
-  const logs: string[] = [];
-  let hasFailure = false;
-  let hasSuccess = false;
+export class SyncCoordinator {
+  private validator: FormatValidator;
 
-  for (const task of tasks) {
-    logs.push(`[${task.id}] 开始执行 ${task.type} 任务`);
+  constructor() {
+    this.validator = new FormatValidator();
+  }
 
+  /**
+   * 协调处理多个文件
+   * @param files - 文件路径数组
+   * @returns 每个文件的处理结果
+   */
+  coordinate(files: string[]): SyncResult[] {
+    return files.map((file) => this.processFile(file));
+  }
+
+  /**
+   * 处理单个文件
+   */
+  private processFile(file: string): SyncResult {
+    const startTime = Date.now();
+
+    // Phase 1: 输入检查
+    if (!checkFileExists(file)) {
+      return {
+        file,
+        success: false,
+        phase: 'input',
+        error: `File not found or not readable: ${file}`,
+        durationMs: Date.now() - startTime
+      };
+    }
+
+    const format = detectFormat(file);
+    if (format !== 'yaml' && format !== 'json') {
+      return {
+        file,
+        success: false,
+        phase: 'input',
+        error: `Unsupported file format: ${format}`,
+        durationMs: Date.now() - startTime
+      };
+    }
+
+    const content = readFileSafe(file);
+    if (content === null) {
+      return {
+        file,
+        success: false,
+        phase: 'input',
+        error: `Failed to read file: ${file}`,
+        durationMs: Date.now() - startTime
+      };
+    }
+
+    // Phase 2: 格式校验
+    const validation = this.validator.validate(content);
+    if (!validation.valid) {
+      return {
+        file,
+        success: false,
+        phase: 'validation',
+        validation,
+        error: `Validation failed: ${validation.errors?.join(', ') || 'Unknown error'}`,
+        durationMs: Date.now() - startTime
+      };
+    }
+
+    // Phase 3: 转换提取
     try {
-      const output = executeTask(task);
-      outputs.push(output);
-      logs.push(`[${task.id}] 任务完成`);
-      hasSuccess = true;
-    } catch (error) {
-      const errorMsg = error instanceof Error ? error.message : String(error);
-      logs.push(`[${task.id}] 任务失败: ${errorMsg}`);
-      hasFailure = true;
+      const json = yamlToJson(content);
+      const tokens = extractDesignTokens(content);
+
+      return {
+        file,
+        success: true,
+        phase: 'transform',
+        validation,
+        tokens,
+        json,
+        durationMs: Date.now() - startTime
+      };
+    } catch (err) {
+      return {
+        file,
+        success: false,
+        phase: 'transform',
+        error: `Transform failed: ${(err as Error).message}`,
+        durationMs: Date.now() - startTime
+      };
     }
   }
 
-  const status: SyncResult['status'] =
-    hasFailure && hasSuccess ? 'partial' :
-      hasFailure ? 'failure' : 'success';
+  /**
+   * 生成汇总报告
+   */
+  generateSummary(results: SyncResult[]): {
+    total: number;
+    passed: number;
+    failed: number;
+    avgDurationMs: number;
+  } {
+    const total = results.length;
+    const passed = results.filter((r) => r.success).length;
+    const failed = total - passed;
+    const avgDurationMs = total > 0
+      ? results.reduce((sum, r) => sum + r.durationMs, 0) / total
+      : 0;
 
-  return {
-    taskId: tasks.map(t => t.id).join(','),
-    status,
-    outputs,
-    logs
-  };
-}
-
-/**
- * 执行单个同步任务
- */
-export function executeTask(task: SyncTask): unknown {
-  switch (task.type) {
-    case 'check':
-      return {
-        type: 'check',
-        input: task.input,
-        passed: true,
-        checkedAt: new Date().toISOString()
-      };
-    case 'transform':
-      return {
-        type: 'transform',
-        input: task.input,
-        output: '',
-        transformedAt: new Date().toISOString()
-      };
-    case 'report':
-      return {
-        type: 'report',
-        input: task.input,
-        generated: true,
-        generatedAt: new Date().toISOString()
-      };
-    default:
-      throw new Error(`未知任务类型: ${(task as SyncTask).type}`);
+    return {
+      total,
+      passed,
+      failed,
+      avgDurationMs: Math.round(avgDurationMs)
+    };
   }
 }
+
+export default SyncCoordinator;
