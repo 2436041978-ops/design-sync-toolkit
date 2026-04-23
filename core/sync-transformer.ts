@@ -1,100 +1,125 @@
+import * as yaml from 'js-yaml';
+
 /**
- * 同步转换器 - 将设计 Token 转换为代码
+ * Design Token 接口
  */
-
-export interface TransformerConfig {
-  framework: string;
-  rules: TransformerRule[];
-}
-
-export interface TransformerRule {
+export interface DesignToken {
   name: string;
-  condition: string;
-  output: string;
-}
-
-export interface TransformResult {
-  success: boolean;
-  output: string;
-  errors: string[];
+  type: 'color' | 'typography' | 'spacing' | 'shadow' | 'other';
+  value: string | number;
+  category?: string;
 }
 
 /**
- * 将设计 Token 转换为代码
+ * 转换引擎
+ * 负责 YAML 到 JSON 的转换和 Design Token 提取
  */
-export function transformTokens(
-  tokens: Record<string, unknown>,
-  config: TransformerConfig
-): TransformResult {
-  const errors: string[] = [];
-  const outputs: string[] = [];
 
-  if (!config.rules || config.rules.length === 0) {
-    return {
-      success: false,
-      output: '',
-      errors: ['未提供转换规则']
-    };
+/**
+ * 将 YAML 内容转换为 JSON 对象
+ * @param yamlContent - YAML 字符串
+ * @returns 解析后的 JSON 对象
+ */
+export function yamlToJson(yamlContent: string): object {
+  const parsed = yaml.load(yamlContent);
+  if (parsed === null || typeof parsed !== 'object') {
+    return {};
   }
-
-  let matchedAny = false;
-  for (const [key, value] of Object.entries(tokens)) {
-    const matchingRule = config.rules.find(rule => matchesCondition(key, value, rule));
-    if (matchingRule) {
-      matchedAny = true;
-      try {
-        const output = applyRule(value, matchingRule, key);
-        outputs.push(`/* ${key} */\n${output}`);
-      } catch (error) {
-        errors.push(`转换 ${key} 失败: ${error instanceof Error ? error.message : String(error)}`);
-      }
-    }
-  }
-
-  if (!matchedAny && errors.length === 0) {
-    errors.push('没有匹配的规则');
-  }
-
-  return {
-    success: errors.length === 0,
-    output: outputs.join('\n\n'),
-    errors
-  };
+  return parsed as object;
 }
 
 /**
- * 检查 token 是否匹配规则条件
+ * 从 YAML 内容中提取 Design Tokens
+ * @param yamlContent - YAML 字符串
+ * @returns DesignToken 数组
  */
-function matchesCondition(key: string, _value: unknown, rule: TransformerRule): boolean {
-  // 先检查通配符
-  if (rule.condition.includes('*')) {
-    const regex = new RegExp('^' + rule.condition.replace(/\*/g, '.*') + '$');
-    return regex.test(key);
+export function extractDesignTokens(yamlContent: string): DesignToken[] {
+  const parsed = yaml.load(yamlContent);
+  if (parsed === null || typeof parsed !== 'object') {
+    return [];
   }
-  // 再检查点路径
-  if (rule.condition.includes('.')) {
-    return key.startsWith(rule.condition) || key === rule.condition;
+
+  const tokens: DesignToken[] = [];
+  const data = parsed as Record<string, any>;
+
+  // 提取颜色 token
+  if (data.colors && typeof data.colors === 'object') {
+    Object.entries(data.colors).forEach(([key, value]) => {
+      tokens.push({
+        name: `color-${key}`,
+        type: 'color',
+        value: String(value),
+        category: 'colors'
+      });
+    });
   }
-  return key === rule.condition;
+
+  // 提取字体 token
+  if (data.typography && typeof data.typography === 'object') {
+    Object.entries(data.typography).forEach(([key, value]) => {
+      tokens.push({
+        name: `typography-${key}`,
+        type: 'typography',
+        value: String(value),
+        category: 'typography'
+      });
+    });
+  }
+
+  // 提取间距 token
+  if (data.spacing && typeof data.spacing === 'object') {
+    Object.entries(data.spacing).forEach(([key, value]) => {
+      tokens.push({
+        name: `spacing-${key}`,
+        type: 'spacing',
+        value: typeof value === 'number' ? value : String(value),
+        category: 'spacing'
+      });
+    });
+  }
+
+  // 提取阴影 token
+  if (data.shadows && typeof data.shadows === 'object') {
+    Object.entries(data.shadows).forEach(([key, value]) => {
+      tokens.push({
+        name: `shadow-${key}`,
+        type: 'shadow',
+        value: String(value),
+        category: 'shadows'
+      });
+    });
+  }
+
+  return tokens;
 }
 
 /**
- * 应用单条转换规则
+ * 转换引擎类（高级用法）
  */
-export function applyRule(token: unknown, rule: TransformerRule, key?: string): string {
-  let output = rule.output;
-
-  if (key) {
-    output = output.replace(/\{\{key\}\}/g, key.split('.').pop() || key);
+export class SyncTransformer {
+  /**
+   * YAML 转 JSON
+   */
+  yamlToJson(yamlContent: string): object {
+    return yamlToJson(yamlContent);
   }
 
-  if (typeof token === 'string' || typeof token === 'number') {
-    output = output.replace(/\{\{value\}\}/g, String(token));
-  } else if (typeof token === 'object' && token !== null) {
-    for (const [k, v] of Object.entries(token)) {
-      output = output.replace(new RegExp(`\\{\\{${k}\\}\\}`, 'g'), String(v));
-    }
+  /**
+   * 提取 Design Tokens
+   */
+  extractDesignTokens(yamlContent: string): DesignToken[] {
+    return extractDesignTokens(yamlContent);
   }
 
-  return output;
+  /**
+   * 批量转换多个 YAML 内容
+   */
+  batchTransform(yamlContents: string[]): Array<{ json: object; tokens: DesignToken[] }> {
+    return yamlContents.map((content) => ({
+      json: yamlToJson(content),
+      tokens: extractDesignTokens(content)
+    }));
+  }
 }
+
+export default SyncTransformer;
