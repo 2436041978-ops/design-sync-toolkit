@@ -1,98 +1,158 @@
-import fs from 'fs';
+import { Command } from 'commander';
 import chalk from 'chalk';
+import * as fs from 'fs';
+import * as path from 'path';
 
-export interface DebtEntry {
+/**
+ * 技术债务条目接口
+ */
+interface DebtItem {
   id: string;
-  baseline: string;
-  actual: string;
-  deviationType: string;
+  description: string;
   owner: string;
-  status: 'pending' | 'resolved';
-  dueDate?: string;
+  status: 'open' | 'closed';
+  created_at: string;
+  closed_at?: string;
 }
-
-export interface TrackerOptions {
-  report?: boolean;
-  format?: 'json' | 'markdown';
-}
-
-// 内存存储
-const debtStore = new Map<string, DebtEntry>();
-let debtCounter = 0;
 
 /**
- * 运行偏差追踪命令
+ * 债务存储管理
  */
-export async function runTracker(options: TrackerOptions = {}): Promise<void> {
-  const { report = false, format = 'json' } = options;
+const DEBT_DIR = '.design-sync';
+const DEBT_FILE = path.join(DEBT_DIR, 'debt.json');
 
-  if (report) {
-    const reportOutput = generateReport(format);
-    console.log(reportOutput);
-    return;
+/**
+ * 确保债务存储目录和文件存在
+ */
+function ensureDebtStorage(): void {
+  if (!fs.existsSync(DEBT_DIR)) {
+    fs.mkdirSync(DEBT_DIR, { recursive: true });
   }
-
-  // 显示当前偏差列表
-  const debts = listDebts();
-  if (debts.length === 0) {
-    console.log(chalk.green('✅ 当前无偏差记录'));
-    return;
-  }
-
-  console.log(chalk.bold(`\n📊 偏差追踪 (${debts.length} 条记录)\n`));
-  console.log(chalk.gray('─'.repeat(50)));
-
-  for (const debt of debts) {
-    const statusIcon = debt.status === 'resolved' ? '✅' : '⏳';
-    const statusColor = debt.status === 'resolved' ? chalk.green : chalk.yellow;
-    console.log(statusColor(`${statusIcon} #${debt.id} [${debt.status}] ${debt.deviationType}`));
-    console.log(`   基线: ${debt.baseline}`);
-    console.log(`   实际: ${debt.actual}`);
-    console.log(`   责任人: ${debt.owner}${debt.dueDate ? ` | 截止: ${debt.dueDate}` : ''}`);
-    console.log(chalk.gray('─'.repeat(50)));
+  if (!fs.existsSync(DEBT_FILE)) {
+    fs.writeFileSync(DEBT_FILE, JSON.stringify([], null, 2), 'utf-8');
   }
 }
 
 /**
- * 添加偏差记录
+ * 读取所有债务条目
  */
-export function addDebt(entry: Omit<DebtEntry, 'id'>): DebtEntry {
-  debtCounter++;
-  const id = String(debtCounter).padStart(3, '0');
-  const debt: DebtEntry = { ...entry, id };
-  debtStore.set(id, debt);
-  return debt;
-}
-
-/**
- * 列出所有偏差
- */
-export function listDebts(): DebtEntry[] {
-  return Array.from(debtStore.values());
-}
-
-/**
- * 生成偏差报告
- */
-export function generateReport(format: string = 'json'): string {
-  const debts = listDebts();
-
-  if (format === 'markdown') {
-    let md = '# 偏差追踪报告\n\n';
-    md += `| ID | 基线要求 | 实际实现 | 偏差类型 | 责任人 | 状态 |\n`;
-    md += `|:---|:---|:---|:---|:---|:---|\n`;
-    for (const debt of debts) {
-      md += `| ${debt.id} | ${debt.baseline} | ${debt.actual} | ${debt.deviationType} | ${debt.owner} | ${debt.status} |\n`;
-    }
-    md += `\n**总计**: ${debts.length} 条偏差\n`;
-    return md;
+function readDebts(): DebtItem[] {
+  ensureDebtStorage();
+  try {
+    const content = fs.readFileSync(DEBT_FILE, 'utf-8');
+    return JSON.parse(content);
+  } catch {
+    return [];
   }
+}
 
-  return JSON.stringify({
-    generatedAt: new Date().toISOString(),
-    totalDebts: debts.length,
-    pendingDebts: debts.filter(d => d.status === 'pending').length,
-    resolvedDebts: debts.filter(d => d.status === 'resolved').length,
-    debts
-  }, null, 2);
+/**
+ * 写入债务条目
+ */
+function writeDebts(debts: DebtItem[]): void {
+  ensureDebtStorage();
+  fs.writeFileSync(DEBT_FILE, JSON.stringify(debts, null, 2), 'utf-8');
+}
+
+/**
+ * 生成唯一 ID
+ */
+function generateId(): string {
+  const now = new Date();
+  const timestamp = now.getTime().toString(36).toUpperCase();
+  return `DEBT-${timestamp}`;
+}
+
+/**
+ * 注册 debt 子命令
+ * 技术债务追踪：add / list / close
+ */
+export function registerDebtCommand(program: Command): void {
+  const debtCmd = program
+    .command('debt')
+    .description('遗留问题（技术债务）追踪管理');
+
+  // debt add <description> --owner <name>
+  debtCmd
+    .command('add <description>')
+    .description('添加技术债务条目')
+    .requiredOption('-o, --owner <name>', '债务负责人')
+    .action((description: string, options: { owner: string }) => {
+      const debts = readDebts();
+      const newDebt: DebtItem = {
+        id: generateId(),
+        description,
+        owner: options.owner,
+        status: 'open',
+        created_at: new Date().toISOString()
+      };
+      debts.push(newDebt);
+      writeDebts(debts);
+
+      console.log(chalk.green('✅ 技术债务已添加'));
+      console.log(chalk.gray(`   ID: ${newDebt.id}`));
+      console.log(chalk.gray(`   描述: ${description}`));
+      console.log(chalk.gray(`   负责人: ${options.owner}`));
+    });
+
+  // debt list
+  debtCmd
+    .command('list')
+    .description('列出所有未关闭的技术债务')
+    .option('-a, --all', '显示所有债务（包括已关闭）')
+    .action((options: { all?: boolean }) => {
+      const debts = readDebts();
+      const filtered = options.all ? debts : debts.filter((d) => d.status === 'open');
+
+      if (filtered.length === 0) {
+        console.log(chalk.green('🎉 暂无技术债务'));
+        return;
+      }
+
+      console.log(chalk.blue(`📋 技术债务列表 (${filtered.length} 条)\n`));
+
+      filtered.forEach((debt, index) => {
+        const statusIcon = debt.status === 'open' ? '🔴' : '✅';
+        const statusText = debt.status === 'open'
+          ? chalk.red('未解决')
+          : chalk.green('已关闭');
+
+        console.log(`${index + 1}. ${statusIcon} [${chalk.cyan(debt.id)}] ${debt.description}`);
+        console.log(`   负责人: ${chalk.yellow(debt.owner)} | 状态: ${statusText}`);
+        console.log(`   创建: ${chalk.gray(debt.created_at)}`);
+        if (debt.closed_at) {
+          console.log(`   关闭: ${chalk.gray(debt.closed_at)}`);
+        }
+        console.log('');
+      });
+
+      const openCount = debts.filter((d) => d.status === 'open').length;
+      const closedCount = debts.filter((d) => d.status === 'closed').length;
+      console.log(chalk.gray(`汇总: ${openCount} 未解决 | ${closedCount} 已关闭`));
+    });
+
+  // debt close <id>
+  debtCmd
+    .command('close <id>')
+    .description('关闭指定技术债务')
+    .action((id: string) => {
+      const debts = readDebts();
+      const debt = debts.find((d) => d.id === id);
+
+      if (!debt) {
+        console.error(chalk.red(`❌ 未找到债务: ${id}`));
+        process.exit(1);
+      }
+
+      if (debt.status === 'closed') {
+        console.log(chalk.yellow(`⚠️  债务 ${id} 已经处于关闭状态`));
+        return;
+      }
+
+      debt.status = 'closed';
+      debt.closed_at = new Date().toISOString();
+      writeDebts(debts);
+
+      console.log(chalk.green(`✅ 债务 ${id} 已关闭`));
+    });
 }
