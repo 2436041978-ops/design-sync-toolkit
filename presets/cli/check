@@ -1,87 +1,52 @@
-import fs from 'fs';
-import path from 'path';
+import { Command } from 'commander';
 import chalk from 'chalk';
-import { checkInput, validateFormat, BaselineInput, CheckResult, ValidationResult } from '../../core';
-
-export interface CheckOptions {
-  config?: string;
-  mode?: 'warn' | 'strict';
-  failOnError?: boolean;
-}
+import { FormatValidator } from '../../core/format-validator';
+import { detectFormat, readFileSafe } from '../../core/input-checker';
 
 /**
- * 运行基线检查命令
+ * 注册 check 子命令
+ * 单文件校验：接收文件路径参数，调用 format-validator 校验
  */
-export async function runCheck(filePath: string, options: CheckOptions = {}): Promise<void> {
-  const { mode = 'warn', failOnError = false } = options;
-
-  // 读取文件
-  const content = fs.readFileSync(path.resolve(filePath), 'utf-8');
-
-  // 验证格式
-  const formatResult = validateFormat(content);
-
-  // 解析输入
-  let input: BaselineInput;
-  try {
-    const parsed = JSON.parse(content);
-    input = parsed as BaselineInput;
-  } catch {
-    // Markdown 格式，手动构建
-    const lines = content.split('\n');
-    input = {
-      actor: '用户',
-      action: '',
-      metric: '',
-      owner: '',
-      constraints: []
-    };
-
-    for (const line of lines) {
-      if (line.startsWith('## 需求')) {
-        input.action = line.replace('## 需求', '').replace('：', '').replace(':', '').trim();
-      } else if (line.includes('目标') || line.includes('metric')) {
-        const match = line.match(/[：:]\s*(.+)/);
-        if (match) input.metric = match[1].trim();
-      } else if (line.includes('责任人') || line.includes('owner')) {
-        const match = line.match(/[：:]\s*(.+)/);
-        if (match) input.owner = match[1].trim();
-      } else if (line.includes('边界') || line.includes('约束') || line.includes('不得') || line.includes('禁止')) {
-        const match = line.match(/[：:]\s*(.+)/);
-        if (match) input.constraints.push(match[1].trim());
+export function registerCheckCommand(program: Command): void {
+  program
+    .command('check <file>')
+    .description('校验单个设计意图 YAML 文件的格式合规性')
+    .option('-s, --strict', '严格模式：对警告也视为错误')
+    .action((file: string, options: { strict?: boolean }) => {
+      // 检查文件格式
+      const format = detectFormat(file);
+      if (format !== 'yaml') {
+        console.error(chalk.red('❌ 格式违规：仅支持 YAML 文件（.yaml / .yml）'));
+        console.error(chalk.gray(`   检测到格式: ${format}`));
+        process.exit(1);
       }
-    }
-  }
 
-  // 执行 SMART 检查
-  const checkResults = checkInput(input);
+      // 读取文件
+      const content = readFileSafe(file);
+      if (content === null) {
+        console.error(chalk.red(`❌ 格式违规：无法读取文件 ${file}`));
+        process.exit(1);
+      }
 
-  // 输出结果
-  console.log(chalk.bold('\n📋 基线检查结果\n'));
-  console.log(chalk.gray('─'.repeat(40)));
+      // 执行校验
+      const validator = new FormatValidator();
+      const result = validator.validate(content);
 
-  let hasError = false;
-  let hasWarning = false;
-
-  for (const result of checkResults) {
-    const icon = result.severity === 'error' ? '❌' : result.severity === 'warning' ? '⚠️' : '✅';
-    const color = result.severity === 'error' ? chalk.red : result.severity === 'warning' ? chalk.yellow : chalk.green;
-    console.log(color(`${icon} ${result.message}`));
-
-    if (result.severity === 'error') hasError = true;
-    if (result.severity === 'warning') hasWarning = true;
-  }
-
-  // 输出汇总
-  console.log(chalk.gray('─'.repeat(40)));
-  if (hasError) {
-    console.log(chalk.red('\n❌ 结果：基线不合规，存在错误\n'));
-    if (mode === 'strict' && failOnError) {
-      process.exit(1);
-    }
-  } else if (hasWarning) {
-    console.log(chalk.yellow('\n⚠️  结果：基线基本合规，存在警告\n'));
-  } else {
-    console.log(chalk.green('\n✅ 结果：基线合规，可进入设计阶段\n'));
-  }
+      if (result.valid) {
+        console.log(chalk.green('✅ 格式合规'));
+        console.log(chalk.gray(`   文件: ${file}`));
+        if (options.strict) {
+          console.log(chalk.yellow('⚠️  严格模式已启用（暂无警告）'));
+        }
+        process.exit(0);
+      } else {
+        console.error(chalk.red('❌ 格式违规'));
+        console.error(chalk.gray(`   文件: ${file}`));
+        console.error(chalk.yellow('\n详细错误:'));
+        result.errors?.forEach((err, index) => {
+          console.error(chalk.red(`  ${index + 1}. ${err}`));
+        });
+        process.exit(1);
+      }
+    });
 }
