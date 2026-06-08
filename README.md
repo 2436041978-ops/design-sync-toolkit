@@ -1,3 +1,9 @@
+# ⚠️ 本项目已归档（Archived）
+
+这是我在 Gap Year 期间的早期实验，探索"设计规范如何轻量同步"。
+相关思考已演进并融入 [Schema-As-Code](链接) 体系。
+本仓库不再维护，保留仅供历史参考。
+
 <p align="center">
   <h1 align="center">Design Sync Toolkit 设计规范同步工具包</h1>
   <p align="center">面向体验设计团队的轻量级设计规范同步工具集</p>
